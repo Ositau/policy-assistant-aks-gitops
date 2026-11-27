@@ -1,0 +1,48 @@
+# One generator, four apps: policy-dev, policy-test, policy-stage, policy-prod.
+# Each uses the same chart with environments/common.yaml plus its own environments/<env>/values.yaml.
+# dev, test and stage sync on their own when Git changes (the gate for stage is the approval in
+# GitHub before the change reaches Git). prod waits for someone to press Sync in Argo CD.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: policy-assistant
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - { env: dev, autoSync: "true" }
+          - { env: test, autoSync: "true" }
+          - { env: stage, autoSync: "true" }
+          - { env: prod, autoSync: "false" }
+  template:
+    metadata:
+      name: "policy-{{.env}}"
+      labels:
+        environment: "{{.env}}"
+    spec:
+      project: policy-assistant
+      source:
+        repoURL: https://github.com/Ositau/policy-assistant-aks-gitops.git
+        targetRevision: main
+        path: charts/policy-assistant
+        helm:
+          releaseName: policy-assistant
+          valueFiles:
+            - ../../environments/common.yaml
+            - "../../environments/{{.env}}/values.yaml"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "policy-{{.env}}"
+  templatePatch: |
+    {{- if eq .autoSync "true" }}
+    spec:
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+    {{- end }}

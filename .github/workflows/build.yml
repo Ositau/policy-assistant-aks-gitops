@@ -1,0 +1,63 @@
+# Build the Policy Assistant image once, then deploy it to dev and (if dev is healthy) test.
+# The image tag is the app's short commit ID, so every environment shows exactly which code it runs.
+# Later environments get the same image through promote.yml; it is never rebuilt.
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_ref:
+        description: Branch, tag or commit of Ositau/azure-openai-policy-assistant to build
+        default: main
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Ositau/azure-openai-policy-assistant
+          ref: ${{ inputs.app_ref }}
+          path: app-src
+      - id: tag
+        run: echo "tag=$(git -C app-src rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Build and push (skipped if this commit was already built)
+        env:
+          ACR: ${{ vars.ACR_NAME }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          image="$ACR.azurecr.io/policy-assistant:$TAG"
+          if az acr repository show-tags -n "$ACR" --repository policy-assistant -o tsv | grep -qx "$TAG"; then
+            echo "$image already exists; not rebuilding." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          az acr login -n "$ACR"
+          docker build -t "$image" app-src/app
+          docker push "$image"
+          echo "Built and pushed **$image**" >> "$GITHUB_STEP_SUMMARY"
+
+  dev:
+    needs: image
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: dev
+      tag: ${{ needs.image.outputs.tag }}
+
+  test:
+    needs: [image, dev]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: test
+      tag: ${{ needs.image.outputs.tag }}

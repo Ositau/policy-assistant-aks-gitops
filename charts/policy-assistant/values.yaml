@@ -1,0 +1,52 @@
+# Defaults. Each environment overrides these in environments/<env>/values.yaml,
+# and settings shared by all four live in environments/common.yaml.
+
+image:
+  repository: crpolicyassistantyqx7k.azurecr.io/policy-assistant
+  tag: ""                 # set per environment; the promote workflow changes only this line
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+# Workload identity: the managed identity this environment's pods run as (Terraform output app_identity_client_ids).
+workloadIdentity:
+  clientId: ""
+
+# Public host name for this environment, and the Gateway listener that serves it.
+host: ""
+gateway:
+  name: public
+  namespace: gateway
+  listener: ""            # https-<env>
+
+# Settings passed to the app (none of them are secrets).
+app:
+  openaiEndpoint: ""
+  chatDeployment: gpt-4o-mini
+  embedDeployment: text-embedding-3-small
+  searchEndpoint: ""
+  searchIndex: policies
+  groupStaffId: ""
+  groupHrId: ""
+  resources:
+    requests: { cpu: 50m, memory: 192Mi }
+    limits: { memory: 384Mi }
+
+# Sign-in in front of the app: oauth2-proxy with Entra ID, using the pod's federated token (no client secret).
+signIn:
+  image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
+  tenantId: ""
+  clientId: ""            # Terraform output signin_client_id
+  cookieSecretName: oauth2-proxy-cookie   # created per namespace by Terraform layer 2, never stored in Git
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 96Mi }
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 4
+  cpuPercent: 70
+
+podDisruptionBudget:
+  enabled: false

@@ -1,0 +1,18 @@
+# How Envoy Gateway runs its proxies. The important part: the Kubernetes LoadBalancer service it creates
+# uses the fixed public IP from Terraform layer 1 (pip-policy-aks-ingress), so DNS never has to change.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: azure-static-ip
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        annotations:
+          service.beta.kubernetes.io/azure-load-balancer-resource-group: rg-policy-aks
+          service.beta.kubernetes.io/azure-pip-name: pip-policy-aks-ingress
+          # Azure's load balancer checks the ports with plain TCP; an HTTP check on "/" would get a 404.
+          service.beta.kubernetes.io/port_80_health-probe_protocol: tcp
+          service.beta.kubernetes.io/port_443_health-probe_protocol: tcp
