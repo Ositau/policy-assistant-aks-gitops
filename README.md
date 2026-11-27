@@ -12,6 +12,8 @@ Service, across four environments: **dev, test, stage and prod**.
 - **No keys or client secrets.** GitHub signs in to Azure, pods sign in to Azure OpenAI and AI Search, and
   oauth2-proxy signs in to Entra ID, all with federated tokens.
 
+The live demo ran for a few days in November 2026 and has been torn down (see Clean up in the guide); everything here rebuilds it.
+
 Step-by-step guide (with every error I hit): https://ositauche.com/aks-argocd-helm-gitops-four-environments-terraform/
 
 ```

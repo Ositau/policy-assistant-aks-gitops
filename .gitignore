@@ -6,5 +6,6 @@ tfplan
 plan.json
 ci.auto.tfvars.json
 *.auto.tfvars
+*.auto.tfvars.json
 .venv/
 __pycache__/
