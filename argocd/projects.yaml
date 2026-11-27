@@ -1,3 +1,5 @@
+# AppProjects come first (sync wave -1): an Application whose project doesn't exist yet is rejected,
+# and the root app would wait forever for it to become healthy.
 # AppProjects say what Argo CD may deploy, from where, and to where.
 # platform: shared add-ons (they need cluster-wide resources such as CRDs).
 # policy-assistant: the app only, only from this repo, only into the four policy-* namespaces,
@@ -7,6 +9,8 @@ kind: AppProject
 metadata:
   name: platform
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"   # before any Application that uses it
 spec:
   description: Shared add-ons (Envoy Gateway, cert-manager, the Gateway)
   sourceRepos:
@@ -25,6 +29,8 @@ kind: AppProject
 metadata:
   name: policy-assistant
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   description: The Policy Assistant in dev, test, stage and prod
   sourceRepos:
