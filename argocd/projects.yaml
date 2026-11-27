@@ -21,6 +21,8 @@ spec:
     - { server: https://kubernetes.default.svc, namespace: envoy-gateway-system }
     - { server: https://kubernetes.default.svc, namespace: cert-manager }
     - { server: https://kubernetes.default.svc, namespace: gateway }
+    # cert-manager keeps its leader-election Role and RoleBinding in kube-system.
+    - { server: https://kubernetes.default.svc, namespace: kube-system }
   clusterResourceWhitelist:
     - { group: "*", kind: "*" }
 ---
