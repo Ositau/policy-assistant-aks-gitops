@@ -44,9 +44,16 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: cert-manager
+  # cert-manager's CA injector writes the webhook's CA certificate after install. It isn't in Git,
+  # so without this the app shows OutOfSync forever (and selfHeal would keep removing it).
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      name: cert-manager-webhook
+      jqPathExpressions: [".webhooks[].clientConfig.caBundle"]
   syncPolicy:
     automated: { prune: true, selfHeal: true }
-    syncOptions: ["CreateNamespace=true", "ServerSideApply=true"]
+    syncOptions: ["CreateNamespace=true", "ServerSideApply=true", "RespectIgnoreDifferences=true"]
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
