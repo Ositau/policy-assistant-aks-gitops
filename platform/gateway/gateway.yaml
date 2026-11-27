@@ -1,0 +1,75 @@
+# One Gateway (one public IP) for all four environments.
+# Port 80: Let's Encrypt challenges and a redirect to HTTPS. Port 443: one listener per environment,
+# each with its own certificate, which cert-manager requests because of the annotation below.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: public
+  namespace: gateway
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  gatewayClassName: envoy
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: https-dev
+      protocol: HTTPS
+      port: 443
+      hostname: policy-dev.ositauche.top
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: dev-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: policy-dev
+    - name: https-test
+      protocol: HTTPS
+      port: 443
+      hostname: policy-test.ositauche.top
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: test-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: policy-test
+    - name: https-stage
+      protocol: HTTPS
+      port: 443
+      hostname: policy-stage.ositauche.top
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: stage-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: policy-stage
+    - name: https-prod
+      protocol: HTTPS
+      port: 443
+      hostname: policy.ositauche.top
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: prod-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: policy-prod

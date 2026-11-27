@@ -1,0 +1,37 @@
+# AppProjects say what Argo CD may deploy, from where, and to where.
+# platform: shared add-ons (they need cluster-wide resources such as CRDs).
+# policy-assistant: the app only, only from this repo, only into the four policy-* namespaces,
+# and no cluster-wide resources at all.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: Shared add-ons (Envoy Gateway, cert-manager, the Gateway)
+  sourceRepos:
+    - https://github.com/Ositau/policy-assistant-aks-gitops.git
+    - registry-1.docker.io/envoyproxy
+    - https://charts.jetstack.io
+  destinations:
+    - { server: https://kubernetes.default.svc, namespace: envoy-gateway-system }
+    - { server: https://kubernetes.default.svc, namespace: cert-manager }
+    - { server: https://kubernetes.default.svc, namespace: gateway }
+  clusterResourceWhitelist:
+    - { group: "*", kind: "*" }
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: policy-assistant
+  namespace: argocd
+spec:
+  description: The Policy Assistant in dev, test, stage and prod
+  sourceRepos:
+    - https://github.com/Ositau/policy-assistant-aks-gitops.git
+  destinations:
+    - { server: https://kubernetes.default.svc, namespace: policy-dev }
+    - { server: https://kubernetes.default.svc, namespace: policy-test }
+    - { server: https://kubernetes.default.svc, namespace: policy-stage }
+    - { server: https://kubernetes.default.svc, namespace: policy-prod }
+  clusterResourceWhitelist: []

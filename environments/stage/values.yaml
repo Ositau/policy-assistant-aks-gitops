@@ -1,0 +1,23 @@
+# stage: Shaped like prod (two pods, same limits) so problems show up before prod.
+image:
+  tag: ""   # empty = not deployed yet. Changed only by the deploy workflow (build.yml / promote.yml)
+
+host: policy-stage.ositauche.top
+gateway:
+  listener: https-stage
+
+replicas: 2
+
+workloadIdentity:
+  clientId: 8f71823f-02a0-468a-824f-f18c3b9fb0e0   # Terraform output app_identity_client_ids.stage
+
+app:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: true
