@@ -1,0 +1,107 @@
+# Terraform for the platform.
+# Pull request: format and validate, plan, and an AI review of the plan
+#   (https://github.com/Ositau/ai-terraform-reviewer) posted on the pull request.
+# Merge to main: apply layer 1 (Azure: cluster, IP, identities, sign-in app), then layer 2 (Argo CD bootstrap).
+# Signs in to Azure with workload identity federation. No secrets are stored.
+name: infra
+
+on:
+  pull_request:
+    paths: ["infra/**", ".github/workflows/infra.yml"]
+  push:
+    branches: [main]
+    paths: ["infra/**", ".github/workflows/infra.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_IN_AUTOMATION: "true"
+  TF_VAR_pipeline_object_id: ${{ vars.PIPELINE_OBJECT_ID }}
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+      - name: Format and validate
+        run: |
+          terraform fmt -check -recursive infra
+          for layer in infra/01-platform infra/02-bootstrap; do
+            [ -d "$layer" ] || continue
+            terraform -chdir="$layer" init -backend=false -input=false >/dev/null
+            terraform -chdir="$layer" validate
+          done
+
+  plan-platform:
+    if: github.event_name == 'pull_request'
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+          terraform_wrapper: false
+      - name: Terraform plan (layer 1)
+        env:
+          TF_VARS_JSON: ${{ vars.TF_VARS_JSON }}
+        run: |
+          set -euo pipefail
+          echo "$TF_VARS_JSON" > infra/01-platform/ci.auto.tfvars.json
+          terraform -chdir=infra/01-platform init -input=false \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_ACCOUNT }}" \
+            -backend-config="container_name=tfstate"
+          terraform -chdir=infra/01-platform plan -input=false -out=tfplan
+          terraform -chdir=infra/01-platform show -json tfplan > plan.json
+      - uses: Ositau/ai-terraform-reviewer@main
+        with:
+          plan-json: plan.json
+          azure-openai-endpoint: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+
+  apply-platform:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: checks
+    runs-on: ubuntu-latest
+    concurrency: apply
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+          terraform_wrapper: false
+      - name: Terraform apply (layer 1)
+        env:
+          TF_VARS_JSON: ${{ vars.TF_VARS_JSON }}
+        run: |
+          set -euo pipefail
+          echo "$TF_VARS_JSON" > infra/01-platform/ci.auto.tfvars.json
+          terraform -chdir=infra/01-platform init -input=false \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_ACCOUNT }}" \
+            -backend-config="container_name=tfstate"
+          terraform -chdir=infra/01-platform apply -input=false -auto-approve
+          echo "### Platform outputs" >> "$GITHUB_STEP_SUMMARY"
+          terraform -chdir=infra/01-platform output -json \
+            | jq -r 'to_entries[] | "- **\(.key)**: `\(.value.value | tostring)`"' >> "$GITHUB_STEP_SUMMARY"
