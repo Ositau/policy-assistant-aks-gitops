@@ -1,0 +1,39 @@
+# Promote what an environment runs to the next one: test -> stage, or stage -> prod.
+# It copies the exact image tag from Git, so prod gets the same image that passed test and stage.
+# stage and prod wait for approval (GitHub Environments); prod also waits for Sync in Argo CD.
+name: promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      to:
+        description: Environment to promote to
+        type: choice
+        options: [stage, prod]
+
+permissions:
+  contents: write
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.read.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - id: read
+        env:
+          FROM: ${{ inputs.to == 'prod' && 'stage' || 'test' }}
+        run: |
+          tag=$(yq '.image.tag' "environments/$FROM/values.yaml")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Promoting **$tag** from **$FROM** to **${{ inputs.to }}**" >> "$GITHUB_STEP_SUMMARY"
+
+  promote:
+    needs: source
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: ${{ inputs.to }}
+      tag: ${{ needs.source.outputs.tag }}

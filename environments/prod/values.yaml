@@ -1,0 +1,23 @@
+# prod: Two to four pods with autoscaling, and always at least one running during maintenance.
+image:
+  tag: ""   # empty = not deployed yet. Changed only by the deploy workflow (build.yml / promote.yml)
+
+host: policy.ositauche.top
+gateway:
+  listener: https-prod
+
+replicas: 2
+
+workloadIdentity:
+  clientId: 48bdd6cf-0ab6-4a90-adfa-9328da2d97a1   # Terraform output app_identity_client_ids.prod
+
+app:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+
+autoscaling:
+  enabled: true
+
+podDisruptionBudget:
+  enabled: true

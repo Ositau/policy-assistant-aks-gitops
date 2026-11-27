@@ -1,0 +1,16 @@
+# Settings shared by all four environments. None of these are secrets.
+app:
+  openaiEndpoint: https://oai-policy-assistant-cnu2a.openai.azure.com/
+  chatDeployment: gpt-4o-mini
+  embedDeployment: text-embedding-3-small
+  searchEndpoint: https://srch-policy-assistant-cnu2a.search.windows.net
+  searchIndex: policies
+  groupStaffId: 1f7ecc69-6c82-4575-bab3-5efbd41189b8   # Entra group "Policy Assistant - Staff"
+  groupHrId: 9d74b64b-0ddd-4032-9a15-b7c81e419007      # Entra group "Policy Assistant - HR"
+
+signIn:
+  tenantId: 115e6ee1-65ba-406e-849b-86474280310c
+  clientId: 9b56f484-c869-4413-91ab-94304a66ae8b       # Terraform output signin_client_id
+
+image:
+  repository: crpolicyassistantyqx7k.azurecr.io/policy-assistant

@@ -1,0 +1,107 @@
+# Rendered only once a release has set image.tag (an empty tag means "not deployed yet").
+# One pod = the app + oauth2-proxy in front of it.
+# The app listens on 127.0.0.1 only, so the only way in is through oauth2-proxy, which signs the user in
+# with Entra ID and passes their name and groups to the app. That is why the app can trust those headers.
+{{- if .Values.image.tag }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pa.name" . }}
+  labels: {{- include "pa.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels: {{- include "pa.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pa.labels" . | nindent 8 }}
+        # Ask the workload identity webhook to give both containers a federated token.
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: {{ include "pa.name" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread replicas over nodes when there is more than one.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {{- include "pa.selector" . | nindent 14 }}
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000",
+                    "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1"]
+          env:
+            - { name: APP_VERSION, value: {{ .Values.image.tag | quote }} }
+            - { name: SIGN_IN_PROXY, value: oauth2-proxy }
+            - { name: AZURE_OPENAI_ENDPOINT, value: {{ required "app.openaiEndpoint is required" .Values.app.openaiEndpoint | quote }} }
+            - { name: AZURE_OPENAI_CHAT_DEPLOYMENT, value: {{ .Values.app.chatDeployment | quote }} }
+            - { name: AZURE_OPENAI_EMBED_DEPLOYMENT, value: {{ .Values.app.embedDeployment | quote }} }
+            - { name: AZURE_SEARCH_ENDPOINT, value: {{ required "app.searchEndpoint is required" .Values.app.searchEndpoint | quote }} }
+            - { name: AZURE_SEARCH_INDEX, value: {{ .Values.app.searchIndex | quote }} }
+            - { name: GROUP_STAFF_ID, value: {{ required "app.groupStaffId is required" .Values.app.groupStaffId | quote }} }
+            - { name: GROUP_HR_ID, value: {{ required "app.groupHrId is required" .Values.app.groupHrId | quote }} }
+            - { name: FAULT_MODE, value: "off" }
+          resources: {{- toYaml .Values.app.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+
+        - name: oauth2-proxy
+          image: {{ .Values.signIn.image }}
+          args:
+            - --provider=entra-id
+            - --oidc-issuer-url=https://login.microsoftonline.com/{{ required "signIn.tenantId is required" .Values.signIn.tenantId }}/v2.0
+            - --client-id={{ required "signIn.clientId is required" .Values.signIn.clientId }}
+            - --entra-id-federated-token-auth=true
+            - --scope=openid email profile
+            - --oidc-email-claim=preferred_username
+            - --email-domain=*
+            - --redirect-url=https://{{ required "host is required" .Values.host }}/oauth2/callback
+            - --upstream=http://127.0.0.1:8000/
+            - --http-address=0.0.0.0:4180
+            - --reverse-proxy=true
+            - --pass-user-headers=true
+            - --skip-provider-button=true
+            - --cookie-secure=true
+            - --cookie-name=_policy_assistant
+            - --silence-ping-logging=true
+            # Open without sign-in, like a health check: the version and the rate-limited self-test.
+            - --skip-auth-route=GET=^/healthz$
+            - --skip-auth-route=GET=^/api/selftest$
+          env:
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.signIn.cookieSecretName }}
+                  key: cookie-secret
+          ports:
+            - { name: http, containerPort: 4180 }
+          livenessProbe:
+            httpGet: { path: /ping, port: http }
+            periodSeconds: 20
+          # /healthz goes through the proxy to the app, so "ready" means both containers work.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          resources: {{- toYaml .Values.signIn.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+{{- end }}

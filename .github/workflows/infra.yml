@@ -105,3 +105,61 @@ jobs:
           echo "### Platform outputs" >> "$GITHUB_STEP_SUMMARY"
           terraform -chdir=infra/01-platform output -json \
             | jq -r 'to_entries[] | "- **\(.key)**: `\(.value.value | tostring)`"' >> "$GITHUB_STEP_SUMMARY"
+
+  # Layer 2 talks to the cluster itself, so it signs in to Kubernetes through kubelogin with the same
+  # federated Azure sign-in. Its plan goes in the job summary (the AI review comment is for layer 1).
+  plan-bootstrap:
+    if: github.event_name == 'pull_request'
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.2.22
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+          terraform_wrapper: false
+      - name: Terraform plan (layer 2)
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra/02-bootstrap init -input=false \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_ACCOUNT }}" \
+            -backend-config="container_name=tfstate"
+          terraform -chdir=infra/02-bootstrap plan -input=false -no-color -out=tfplan | tee plan.txt
+          { echo "### Layer 2 plan"; echo '```'; grep -E "^  # |^Plan:|No changes" plan.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  apply-bootstrap:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: apply-platform
+    runs-on: ubuntu-latest
+    concurrency: apply
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.2.22
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+          terraform_wrapper: false
+      - name: Terraform apply (layer 2)
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra/02-bootstrap init -input=false \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_ACCOUNT }}" \
+            -backend-config="container_name=tfstate"
+          terraform -chdir=infra/02-bootstrap apply -input=false -auto-approve

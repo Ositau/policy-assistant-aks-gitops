@@ -1,0 +1,23 @@
+# dev: Smallest: one pod, for checking a build works at all.
+image:
+  tag: ""   # empty = not deployed yet. Changed only by the deploy workflow (build.yml / promote.yml)
+
+host: policy-dev.ositauche.top
+gateway:
+  listener: https-dev
+
+replicas: 1
+
+workloadIdentity:
+  clientId: ec47a714-7993-4a3a-8c03-dd3e35bb6a32   # Terraform output app_identity_client_ids.dev
+
+app:
+  resources:
+    requests: { cpu: 50m, memory: 192Mi }
+    limits: { memory: 384Mi }
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false
