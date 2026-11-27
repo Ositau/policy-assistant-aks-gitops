@@ -1,0 +1,5 @@
+apiVersion: v2
+name: policy-assistant
+description: The Policy Assistant (Azure OpenAI RAG app) with oauth2-proxy sign-in, for one environment.
+type: application
+version: 0.1.0

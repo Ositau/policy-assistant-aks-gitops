@@ -1,0 +1,18 @@
+# Free certificates from Let's Encrypt. cert-manager proves we own each host name by answering an
+# HTTP challenge on port 80 through the same Gateway (that's why DNS must point here first).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - name: public
+                namespace: gateway
+                sectionName: http

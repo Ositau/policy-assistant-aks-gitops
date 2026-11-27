@@ -1,0 +1,90 @@
+# Deploy one image tag to one environment, the GitOps way: change the tag in Git and let Argo CD do the rest.
+#
+# 1. "release" job: runs in the GitHub Environment of the same name. stage and prod have a required
+#    reviewer, so the job (and the Git change) waits for someone to approve it.
+# 2. Writes the tag into environments/<env>/values.yaml and pushes to main. Nothing touches the cluster.
+# 3. "verify" job: waits until https://<host>/healthz reports that exact version, then runs the self-test.
+#    For prod, Argo CD doesn't sync on its own, so this waits for someone to press Sync.
+#
+# Called by build.yml (dev, then test) and promote.yml (stage, prod). Can also be run by hand.
+name: deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment: { type: string, required: true }
+      tag: { type: string, required: true }
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [dev, test, stage, prod]
+      tag:
+        description: Image tag (the app's short commit ID)
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency: gitops-write   # one Git change at a time
+    outputs:
+      host: ${{ steps.change.outputs.host }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Set the image tag for ${{ inputs.environment }}
+        id: change
+        env:
+          ENV: ${{ inputs.environment }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          file="environments/$ENV/values.yaml"
+          echo "host=$(yq '.host' "$file")" >> "$GITHUB_OUTPUT"
+          before=$(yq '.image.tag' "$file")
+          if [ "$before" = "$TAG" ]; then
+            echo "$ENV already runs $TAG; nothing to change." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # Quoted on purpose: an all-digit tag would otherwise become a number in Helm.
+          yq -i '.image.tag = strenv(TAG) | .image.tag style="double"' "$file"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "$ENV: deploy $TAG (was $before)"
+          git pull --rebase -q origin main
+          git push -q origin HEAD:main
+          echo "**$ENV**: $before -> **$TAG** (Git commit $(git rev-parse --short HEAD))" >> "$GITHUB_STEP_SUMMARY"
+
+  verify:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for ${{ inputs.environment }} to serve ${{ inputs.tag }}
+        env:
+          HOST: ${{ needs.release.outputs.host }}
+          TAG: ${{ inputs.tag }}
+          # prod waits for a person to press Sync in Argo CD, so it gets longer.
+          MINUTES: ${{ inputs.environment == 'prod' && 45 || 15 }}
+        run: |
+          set -uo pipefail
+          deadline=$(( $(date +%s) + MINUTES * 60 ))
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            running=$(curl -fsS --max-time 10 "https://$HOST/healthz" | jq -r .version 2>/dev/null || true)
+            echo "$(date -u +%H:%M:%S) $HOST is running: ${running:-no answer}"
+            if [ "$running" = "$TAG" ]; then
+              code=$(curl -s -o /tmp/selftest.json -w '%{http_code}' --max-time 30 "https://$HOST/api/selftest")
+              echo "self-test: HTTP $code $(cat /tmp/selftest.json)"
+              [ "$code" = "200" ] || { echo "::error::$HOST runs $TAG but the self-test failed"; exit 1; }
+              echo "**$HOST** serves **$TAG**, self-test passed." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error::$HOST did not start serving $TAG within $MINUTES minutes"
+          exit 1
