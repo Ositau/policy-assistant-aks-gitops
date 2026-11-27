@@ -1,23 +1,17 @@
 # test: Same size as dev; every build that passes dev lands here automatically.
 image:
-  tag: ""   # empty = not deployed yet. Changed only by the deploy workflow (build.yml / promote.yml)
-
+  tag: "2cc7dd3" # empty = not deployed yet. Changed only by the deploy workflow (build.yml / promote.yml)
 host: policy-test.ositauche.top
 gateway:
   listener: https-test
-
 replicas: 1
-
 workloadIdentity:
-  clientId: 5141118d-c0b8-4118-8162-cdff4b4e5a9c   # Terraform output app_identity_client_ids.test
-
+  clientId: 5141118d-c0b8-4118-8162-cdff4b4e5a9c # Terraform output app_identity_client_ids.test
 app:
   resources:
-    requests: { cpu: 50m, memory: 192Mi }
-    limits: { memory: 384Mi }
-
+    requests: {cpu: 50m, memory: 192Mi}
+    limits: {memory: 384Mi}
 autoscaling:
   enabled: false
-
 podDisruptionBudget:
   enabled: false
