@@ -58,7 +58,9 @@ def repo_step(a: argparse.Namespace) -> None:
     edit("platform/gateway/gateway.yaml", r"^(\s*hostname:\s*policy(?:-[a-z]+)?)\.\S+", lambda m: f"{m.group(1)}.{a.domain}")
     for env in ENVS:
         edit(f"environments/{env}/values.yaml", r"^(host:\s*policy(?:-[a-z]+)?)\.\S+", lambda m: f"{m.group(1)}.{a.domain}")
-    print(f"Repo and domain set: {repo}, *.{a.domain}. Check with: git diff")
+        # A fresh copy starts with nothing deployed: the tags in this repo point at the author's registry.
+        edit(f"environments/{env}/values.yaml", r'^(\s*tag:\s*)"[^"]*"', lambda m: m.group(1) + '""')
+    print(f"Repo and domain set: {repo}, *.{a.domain}; image tags cleared. Check with: git diff")
 
 
 def azure_step(a: argparse.Namespace) -> None:

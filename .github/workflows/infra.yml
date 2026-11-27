@@ -129,6 +129,12 @@ jobs:
       - name: Terraform plan (layer 2)
         run: |
           set -euo pipefail
+          # On the very first pull request the cluster doesn't exist yet, so there is nothing to plan against.
+          if ! az aks show -g rg-policy-aks -n aks-policy-assistant -o none 2>/dev/null; then
+            echo "### Layer 2 plan" >> "$GITHUB_STEP_SUMMARY"
+            echo "Skipped: the cluster doesn't exist yet. Layer 2 is applied right after layer 1 on main." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           terraform -chdir=infra/02-bootstrap init -input=false \
             -backend-config="resource_group_name=${{ vars.TF_STATE_RG }}" \
             -backend-config="storage_account_name=${{ vars.TF_STATE_ACCOUNT }}" \
@@ -155,6 +161,16 @@ jobs:
         with:
           terraform_version: 1.14.7
           terraform_wrapper: false
+      - name: Wait until the pipeline can manage the cluster
+        run: |
+          # Its Cluster Admin role is created by layer 1 and can take a minute or two to apply.
+          az aks get-credentials -g rg-policy-aks -n aks-policy-assistant --overwrite-existing
+          kubelogin convert-kubeconfig -l azurecli
+          for i in $(seq 1 30); do
+            [ "$(kubectl auth can-i '*' '*' --all-namespaces 2>/dev/null)" = "yes" ] && { echo "Cluster access OK"; exit 0; }
+            echo "Waiting for the Cluster Admin role to apply ($i/30)"; sleep 10
+          done
+          echo "::error::The pipeline still can't manage the cluster after 5 minutes"; exit 1
       - name: Terraform apply (layer 2)
         run: |
           set -euo pipefail
