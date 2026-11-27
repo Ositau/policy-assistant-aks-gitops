@@ -54,6 +54,10 @@ spec:
             - { name: FAULT_MODE, value: "off" }
           resources: {{- toYaml .Values.app.resources | nindent 12 }}
           securityContext:
+            # The image's USER is a name (appuser). runAsNonRoot can only check a number, so say which:
+            # 10001 is the ID the Dockerfile gives appuser.
+            runAsUser: 10001
+            runAsGroup: 10001
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities: { drop: ["ALL"] }
